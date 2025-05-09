@@ -64,16 +64,70 @@ func Load(path string) ([]stock, error) {
 	return stocks, nil
 }
 
+// How much money in the trading account
+var accountBalance = 10000.0
+
+// What percentage of that balance I can tolerate losing
+var lossTolerance = .02 // 2%
+
+// Maximum amount I can tolerate losing
+var maxLossPerTrade = accountBalance * lossTolerance
+
+// Percentage of the gap I want to take as profit
+var profitPercent = .8 // 80%
+
+type Position struct {
+    // The price at which to buy or sell
+    EntryPrice float64
+    // How many shares to buy or sell
+    Shares int
+    // The price at which to exit and take my profit
+    TakeProfitPrice float64
+    // The price at which to stop my loss if the stock doesn’t go our way
+    StopLossPrice float64
+    // Expected final Profit
+    Profit float64
+}
+
+func Calculate(gapPercent, openingPrice float64) Position {
+    closingPrice := openingPrice / (1 + gapPercent)
+    gapValue := closingPrice - openingPrice
+    profitFromGap := profitPercent * gapValue
+
+    stopLoss := openingPrice - profitFromGap
+    takeProfit := openingPrice + profitFromGap
+
+    shares := int(maxLossPerTrade / math.Abs(stopLoss - openingPrice))
+
+    profit := math.Abs(openingPrice - takeProfit) * float64(shares)
+    profit = math.Round(profit * 100) / 100
+
+    return Position{
+        EntryPrice:      math.Round(openingPrice * 100) / 100,
+        Shares:          shares,
+        TakeProfitPrice: math.Round(takeProfit * 100) / 100,
+        StopLossPrice:   math.Round(stopLoss * 100) / 100,
+        Profit:          math.Round(profit * 100) / 100,
+    }
+}
+
+type Selection struct {
+	Ticker string
+	Position
+}
+
+
+
+
 func main() {
 	
 	stocks,err := Load("./opg.csv")
 
 	if err != nil {
+		fmt.Print(err)
 		return
 	}
 
-	fmt.Println(stocks)
-	fmt.Println()
 	//WE ONLY CONSIDER THE VALUES WITH THE GAP >= 10%(0.1)
 
 
@@ -82,5 +136,20 @@ func main() {
 	})
 
 	fmt.Println(stocks)
+
+	var selections []Selection
+
+	for _, stock := range stocks{
+		position := Calculate(stock.Gap, stock.OpeningPrice)
+
+		sel := Selection{
+			Ticker: stock.Ticker,
+			Position: position,
+		}
+
+		selections = append(selections, sel)
+	}
+
+
 
 }
