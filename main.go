@@ -5,11 +5,15 @@ package main
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"log"
 	"math"
+	"net/http"
 	"os"
 	"slices"
 	"strconv"
+	"time"
 )
 
 //struct to group the reading values
@@ -114,8 +118,88 @@ func Calculate(gapPercent, openingPrice float64) Position {
 type Selection struct {
 	Ticker string
 	Position
+	Articles []Article
 }
 
+//Fetch the new using API
+
+const (
+	url  = "https://seeking-alpha.p.rapidapi.com/news/v2/list-by-symbol?size=5&id="
+	apiKeyHeader = "X-Rapidapi-Key"
+	apiKey = "3ed75a19b8mshcdda51e3421b503p1df4d5jsn3027836278da"
+	
+
+)
+
+type attributes struct {
+	PublishOn time.Time `json:"publishOn"`
+	Title 	  string `json:"title"`
+
+	//above properties names match the json properties that is enough for go to automatically map the data  but for good practice we use json struct TAG
+
+}
+
+type seekingAlphaNews struct {
+	Attributes attributes `json:"attributes"`
+}
+
+type seekingAlphaResponse struct {
+	Data []seekingAlphaNews `json:"data"` 
+}
+
+//we cant pass api response in seekingalpharesponse type around the programme so we make a new type
+
+type Article struct {
+	PublishOn time.Time
+	Headline  string
+}
+
+func FetchNews(ticker string) ([]Article, error) {
+	req, err := http.NewRequest(http.MethodGet, url+ticker, nil )
+
+	if err != nil {
+		return nil, err
+	}
+
+
+	req.Header.Add(apiKeyHeader, apiKey)
+	
+	//make the request
+
+	client := &http.Client{}
+
+	resp, err := client.Do(req)
+
+	if err != nil {
+		return nil, err
+	}
+
+	//http response status code {successful responses 200-299}
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("unsuccessful status code recieved %d", resp.StatusCode)
+	}
+
+	res := &seekingAlphaResponse{}
+
+	//response id ioReadCloser interface not a string
+	//newdecoder return a pointer to json.decoder it has a decode method
+	json.NewDecoder(resp.Body).Decode(res)
+
+	var articles []Article
+	
+
+	for _, item := range res.Data {
+		art := Article{
+			PublishOn: item.Attributes.PublishOn,
+			Headline: item.Attributes.Title,
+		}
+		articles = append(articles, art)
+	}
+
+	return articles, nil
+
+}
 
 
 
@@ -142,14 +226,23 @@ func main() {
 	for _, stock := range stocks{
 		position := Calculate(stock.Gap, stock.OpeningPrice)
 
+		articles, err := FetchNews(stock.Ticker)
+		if err != nil {
+			log.Printf("errpr loading news on %s, %v", stock.Ticker, err)
+
+			continue
+		} else {
+			log.Printf("Found %d news on %s", len(articles), stock.Ticker)
+		}
 		sel := Selection{
 			Ticker: stock.Ticker,
 			Position: position,
+			Articles: articles,
 		}
 
 		selections = append(selections, sel)
 	}
 
-
+	fmt.Println(selections)
 
 }
